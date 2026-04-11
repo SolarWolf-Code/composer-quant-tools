@@ -20,9 +20,9 @@ const extraColumnMapping = {
   "Trailing 2W Return": "trailing_two_week_return",
   "Trailing 1D Return": "trailing_one_day_return",
   "Trailing 1Y Return": "trailing_one_year_return",
-  "Top 1D Contribution": "top_one_day_contribution",
-  "Top 5% Contribution": "top_five_percent_day_contribution",
-  "Top 10% Contribution": "top_ten_percent_day_contribution",
+  "Top 1D": "top_one_day_contribution",
+  "Top 5%": "top_five_percent_day_contribution",
+  "Top 10%": "top_ten_percent_day_contribution",
   "Herfindahl Index": "herfindahl_index",
   "Size": "size",
 };
@@ -49,9 +49,9 @@ const columnTooltips = {
   "Skewness": "Measures asymmetry. Positive skew indicates more frequent small losses balanced by occasional large gains.",
   "Turnover": "The annualized frequency at which the portfolio's assets are replaced.",
   "Tail Ratio": "The ratio of the 95th percentile return to the absolute 5th percentile return. Right vs Left tail strength.",
-  "Top 1D Contribution": "The contribution of the single best day to total returns.",
-  "Top 5% Contribution": "The combined contribution of the top 5% best days to total returns.",
-  "Top 10% Contribution": "The combined contribution of the top 10% best days to total returns.",
+  "Top 1D": "The contribution of the single best day to total returns.",
+  "Top 5%": "The combined contribution of the top 5% best days to total returns.",
+  "Top 10%": "The combined contribution of the top 10% best days to total returns.",
   "Herfindahl Index": "A measure of concentration. Higher values indicate more concentrated portfolios.",
   "Size": "The number of trading days in the analysis period."
 };
@@ -78,9 +78,9 @@ const desiredMasterOrder = [
   "Skewness",
   "Turnover",
   "Tail Ratio",
-  "Top 1D Contribution",
-  "Top 5% Contribution",
-  "Top 10% Contribution",
+  "Top 1D",
+  "Top 5%",
+  "Top 10%",
   "Herfindahl Index",
   "Size"
 ];
@@ -182,8 +182,15 @@ function hideTooltip(e) {
 }
 
 function getStatsTable() {
-  const tables = document.querySelectorAll('.border-t.border-b.border-data-table-border table');
+  const tables = document.querySelectorAll('.overflow-x-auto table');
   for (const table of tables) {
+    const headerText = table.textContent || '';
+    if (headerText.includes('Cumulative Return') && headerText.includes('Annualized Return')) {
+      return table;
+    }
+  }
+  const fallbackTables = document.querySelectorAll('table');
+  for (const table of fallbackTables) {
     const headerText = table.textContent || '';
     if (headerText.includes('Cumulative Return') && headerText.includes('Annualized Return')) {
       return table;
@@ -266,7 +273,7 @@ function updateColumnValues(statsTable) {
     let th = thead.querySelector(`th[data-column-id="${colName}"]`);
     if (!th) {
       th = document.createElement('th');
-      th.className = 'p-2 border-r border-data-table-border text-xs font-medium whitespace-nowrap text-left min-w-[120px] extra-column';
+      th.className = 'px-0 py-2 border-r border-black/16 text-xs font-medium whitespace-nowrap text-left min-w-[120px] extra-column';
       th.dataset.columnId = colName;
       th.textContent = colName;
       thead.appendChild(th);
@@ -277,7 +284,7 @@ function updateColumnValues(statsTable) {
       let td = row.querySelector(`td[data-column-id="${colName}"]`);
       if (!td) {
         td = document.createElement('td');
-        td.className = 'p-2 border-data-table-border border-t border-r border-l extra-column';
+        td.className = 'px-0 py-2 text-[14px] font-medium leading-5 text-[#101516] whitespace-nowrap align-middle pr-6 extra-column';
         td.dataset.columnId = colName;
         row.appendChild(td);
       }
@@ -314,6 +321,10 @@ function updateColumnValues(statsTable) {
         const newVal = formatter(statsToUse[key]);
         if (td.textContent !== newVal) {
           td.textContent = newVal;
+        }
+      } else {
+        if (td.textContent !== "-") {
+          td.textContent = "-";
         }
       }
     });
@@ -380,10 +391,9 @@ const waitForFactsheet = async () => {
     if (isPathOnDetailsPage()) {
       factsheetOpen = document.getElementById("app");
     }
-    const factsheetGraphNode = factsheetOpen?.querySelector?.("section");
     const widgetAttached = Boolean(factsheetOpen?.querySelector?.("#tearsheat-widget"));
 
-    if (factsheetOpen && factsheetGraphNode && !widgetAttached) {
+    if (factsheetOpen && !widgetAttached) {
       isLoggedIn() && (await getTokenAndAccount());
       if (factsheetOpen?.querySelector?.("#tearsheat-widget")) return;
       renderTearsheetButton(factsheetOpen);
@@ -392,38 +402,50 @@ const waitForFactsheet = async () => {
   observer.observe(document, { childList: true, subtree: true });
 };
 
-function renderTearsheetButton(factsheet) {
-  const graphNode = factsheet?.querySelector?.("section");
-  if (!graphNode) return;
+const showToast = (message, isError = false) => {
+  const existing = document.querySelector('.tearsheet-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = `tearsheet-toast fixed bottom-4 right-4 px-4 py-2 rounded-md shadow-lg z-[9999] text-sm ${isError ? 'bg-red-600' : 'bg-dark'} text-white`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+};
 
-  const button = (buttonId, buttonText, func, css) => {
+function renderTearsheetButton(factsheet) {
+  let container = factsheet?.querySelector?.('.flex.flex-wrap-reverse.items-start.justify-between');
+  if (!container) {
+    container = factsheet?.querySelector?.('.bg-dark.rounded-md .px-0\\.5.pb-0\\.5');
+  }
+  if (!container) {
+    container = factsheet?.querySelector?.('.rounded-md.flex.flex-col.gap-2.p-3');
+  }
+  if (!container) {
+    container = factsheet?.querySelector?.('.flex.flex-col.gap-4.w-full');
+  }
+  if (!container) {
+    return;
+  }
+
+  const button = (buttonId, buttonText, func) => {
     let btn = document.createElement("button");
     btn.id = buttonId;
-    btn.className = `rounded flex border border-asset-border shadow-sm bg-panel-bg divide-y divide-solid divide-asset-border text-sm font-light flex items-center justify-center px-2 py-2 shadow-inner transition focus:outline-none leading-none select-none ${css} text-dark bg-white hover:bg-tab-light`;
+    btn.className = "rounded-full px-2 py-1.5 bg-dark text-white text-xs font-medium hover:opacity-90 transition";
 
-    let span = document.createElement("span");
-    span.className = "flex items-center space-x-2";
-
-    let text = document.createElement("span");
-    text.innerText = buttonText;
-
+    btn.textContent = buttonText;
     btn.addEventListener("click", (e) => func(e));
 
-    span.appendChild(text);
-    btn.appendChild(span);
     return btn;
   };
 
   async function buildTearsheetButtonClickHandler(testType) {
-    const buildBtn = factsheet.querySelector(`#tearsheat-widget #build-${testType}-tearsheet-button`);
+    const widget = factsheet.querySelector("#tearsheat-widget");
+    const buildBtn = widget.querySelector('button');
     setButtonEnabled(buildBtn, false);
-    let originalText = buildBtn.innerText;
-    buildBtn.querySelector("span").innerHTML = `
-          ${originalText.replace("Build ", "Building ")}
-          <div style="height: 27px; margin: -7px 10px;"><svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" class="h-full w-full" style="color: rgb(28, 32, 51);"><rect width="512" height="512" x="0" y="0" rx="0" fill="transparent" stroke="transparent" stroke-width="0" stroke-opacity="100%" paint-order="stroke"></rect><svg width="512px" height="512px" viewBox="0 0 24 24" fill="#1C2033" x="0" y="0" role="img" xmlns="http://www.w3.org/2000/svg" style="display: inline-block; vertical-align: middle;"><g fill="#1C2033"><circle cx="4" cy="12" r="3" fill="currentColor"><animate id="svgSpinners3DotsScale0" attributeName="r" begin="0;svgSpinners3DotsScale1.end-0.25s" dur="0.75s" values="3;.2;3"></animate></circle><circle cx="12" cy="12" r="3" fill="currentColor"><animate attributeName="r" begin="svgSpinners3DotsScale0.end-0.6s" dur="0.75s" values="3;.2;3"></animate></circle><circle cx="20" cy="12" r="3" fill="currentColor"><animate id="svgSpinners3DotsScale1" attributeName="r" begin="svgSpinners3DotsScale0.end-0.45s" dur="0.75s" values="3;.2;3"></animate></circle></g></svg></svg></div>
-        `;
+    const originalText = buildBtn.textContent;
+    buildBtn.innerHTML = "Building...";
 
-    factsheet?.querySelector(`.tearsheet-${testType}-link`)?.remove();
+    widget.querySelector(`.tearsheet-${testType}-link`)?.remove();
 
     let symphonyName = factsheet.querySelectorAll(".items-start")?.[0]?.innerText;
     const backtestData = await getSymphonyBacktest(window.active_factsheet_symphonyId);
@@ -448,45 +470,74 @@ function renderTearsheetButton(factsheet) {
       symphony = { ...symphony, ...data };
     }
 
-    let downloadLink;
+    let tearsheetUrl;
     try {
-      downloadLink = await getTearsheet(symphony, backtestData, testType);
-    } catch {
-      downloadLink = `<span style="display: block; margin-left: 20px; margin-top: 6px;">(error generating ${testType} tearsheet)</span>`;
+      tearsheetUrl = await getTearsheet(symphony, backtestData, testType);
+      if (tearsheetUrl) {
+        window.open(tearsheetUrl, '_blank');
+        showToast(`Generated ${testType} tearsheet!`);
+      } else {
+        showToast(`No tearsheet generated`, true);
+      }
+    } catch (err) {
+      showToast(`Error generating ${testType} tearsheet`, true);
     }
 
-    const linkContainer = document.createElement('div');
-    linkContainer.classList.add(`tearsheet-${testType}-link`);
-    linkContainer.innerHTML = downloadLink;
-
-    buildBtn.innerHTML = `<span class="flex items-center space-x-2">${originalText}</span>`;
-    buildBtn.insertAdjacentElement('afterend', linkContainer);
+    buildBtn.innerHTML = originalText;
     setButtonEnabled(buildBtn, true);
   }
 
-  const hasLiveData = factsheet.querySelector(".max-w-screen-2xl .flex-col")?.innerText?.includes("Live");
-  const container = document.createElement("div");
-  container.id = "tearsheat-widget";
-  container.className = "border border-panel-border rounded-md shadow-sm bg-panel-bg pt-4 pb-5 px-4 space-y-3";
+  const btnContainer = container.querySelector('.flex.flex-1.lg\\:flex-initial.gap-2') || container;
+  const hasLiveData = btnContainer?.parentElement?.querySelector('.flex.gap-1')?.innerText?.includes("Live") || 
+                    factsheet.querySelector('.flex.gap-1')?.innerText?.includes("Live");
+  const widget = document.createElement("div");
+  widget.id = "tearsheat-widget";
+  widget.className = "relative";
 
-  const backtestArea = document.createElement('div');
-  backtestArea.style.display = 'flex';
-  backtestArea.appendChild(button("build-backtest-tearsheet-button", "Build Backtest Tearsheet", () => buildTearsheetButtonClickHandler("backtest"), "rounded-tl rounded-bl"));
-  container.appendChild(backtestArea);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "button btn-base-js gap-x-1.5 transition btn-shadow-inset btn-shadow border disabled:shadow-dark/10 active:shadow-none text-white focus-visible:ring-2 focus-visible:ring-action-soft/50 justify-center px-3 py-3 rounded bg-grass-500 border-grass-700 shadow-grass-500/30 hover:bg-grass-450 hover:border-grass-700 disabled:!bg-grass-light disabled:text-white/50 flex-1 lg:flex-initial min-w-[150px] !justify-start";
+  btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256" aria-hidden="true" focusable="false" class="inline-flex items-center shrink-0"><path d="M224,48V96a8,8,0,0,1-8,8H168l-16,16H40a8,8,0,0,1-8-8V40a8,8,0,0,1,8-8H80l16,16h96A8,8,0,0,1,224,48ZM147.06,51.79,179.21,83.94,163,100.2,130.79,68T83.94,147.06,100.2,163l34.79-34.79L179.21,172.79,195.47,156.53,161.32,122.37,195.47,88.21ZM93.18,153.89,45.79,201.27a8,8,0,0,0,0,11.31l47.39,47.39a8,8,0,0,0,11.31,0l47.39-47.39a8,8,0,0,0,0-11.31Z"></path></svg><span class="ml-1">Tearsheet</span>`;
 
-  if (hasLiveData) {
-    const liveArea = document.createElement('div');
-    liveArea.style.display = 'flex';
-    liveArea.appendChild(button("build-live-tearsheet-button", "Build Live Tearsheet", () => buildTearsheetButtonClickHandler("live"), "rounded-tl rounded-bl"));
-    container.appendChild(liveArea);
-  }
+  let menuVisible = false;
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menuVisible = !menuVisible;
+    const existingMenu = widget.querySelector('.tearsheet-dropdown-menu');
+    if (existingMenu) {
+      existingMenu.remove();
+      if (!menuVisible) return;
+    }
+    const menu = document.createElement("div");
+    menu.className = "tearsheet-dropdown-menu absolute bottom-full left-0 mb-1 bg-dark rounded-md shadow-lg py-1 z-50 min-w-[120px]";
+    const options = [{ id: "backtest", label: "Backtest" }];
+    if (hasLiveData) {
+      options.unshift({ id: "live", label: "Live" });
+    }
+    options.push({ id: "oos", label: "OOS" });
+    options.forEach(opt => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "block w-full text-left px-3 py-1.5 text-xs text-white hover:bg-white/20";
+      item.textContent = opt.label;
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        menu.remove();
+        menuVisible = false;
+        buildTearsheetButtonClickHandler(opt.id);
+      });
+      menu.appendChild(item);
+    });
+    widget.appendChild(menu);
+  });
 
-  const oosArea = document.createElement('div');
-  oosArea.style.display = 'flex';
-  oosArea.appendChild(button("build-oos-tearsheet-button", "Build OOS Tearsheet", () => buildTearsheetButtonClickHandler("oos"), "rounded-tl rounded-bl"));
-  container.appendChild(oosArea);
+  document.addEventListener("click", () => {
+    widget.querySelector('.tearsheet-dropdown-menu')?.remove();
+    menuVisible = false;
+  });
 
-  graphNode.appendChild(container);
+  widget.appendChild(btn);
+  btnContainer.insertBefore(widget, btnContainer.firstChild);
 }
 
 async function getTearsheet(symphony, backtestData, type) {
@@ -497,7 +548,7 @@ async function getTearsheet(symphony, backtestData, type) {
       } else {
         const blob = new Blob([response], { type: "text/html" });
         const url = URL.createObjectURL(blob);
-        resolve(`<a href="${url}" target="_blank" style="display: block; margin-left: 20px; margin-top: 6px; color: #007bff;">Open QuantStats ${type} Tearsheet Report</a>`);
+        resolve(url);
       }
     });
   });
@@ -605,7 +656,7 @@ export function initFactsheet() {
                          m.target.nodeName === 'TBODY' || 
                          m.target.nodeName === 'THEAD' ||
                          m.target.nodeName === 'TR' ||
-                         m.target.closest?.('.border-data-table-border');
+                         m.target.closest?.('.overflow-x-auto');
                          
       return isTablePart && (m.type === 'childList' || m.type === 'characterData');
     });

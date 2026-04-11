@@ -22,40 +22,31 @@ function setupMessageHandlers() {
 
   // Internal message handler
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log("Received message", request);
 
     // getQuantStats is pure JS and fast — run it directly outside the serial
     // task queue so all symphonies can be computed concurrently.
     if (request.action === "getQuantStats") {
       const symphony = request?.symphony;
       log("Getting QuantStats");
-      log("sym", symphony);
-      log("dc", symphony?.dailyChanges);
 
       const cacheKey = `quantstats_${symphony.id}`;
       const cacheExpiry = Date.now() + 3 * 60 * 60 * 1000;
 
       getCache(cacheKey).then(cachedItem => {
         if (cachedItem && cachedItem.expiry > Date.now()) {
-          console.log("Returning cached result");
           sendResponse(cachedItem.value);
         } else {
           getQuantStats(symphony, symphony?.dailyChanges).then(quantStats => {
-            setCache(cacheKey, quantStats, cacheExpiry).catch(error => {
-              console.error("Error setting cache:", error);
-            });
+            setCache(cacheKey, quantStats, cacheExpiry).catch(() => {});
             sendResponse(quantStats);
           }).catch(error => {
-            console.error("Error getting QuantStats:", error);
             sendResponse({ error: "An error occurred while processing the request" });
           });
         }
       }).catch(error => {
-        console.error("Error getting cache:", error);
         getQuantStats(symphony, symphony?.dailyChanges).then(quantStats => {
           sendResponse(quantStats);
-        }).catch(error => {
-          console.error("Error getting QuantStats:", error);
+        }).catch(() => {
           sendResponse({ error: "An error occurred while processing the request" });
         });
       });
@@ -67,10 +58,6 @@ function setupMessageHandlers() {
       if (request.action === "getTearsheet") {
         const symphony = request?.symphony;
         const backtestData = request?.backtestData;
-
-        log("Getting TearsheetBlobUrl");
-        log("sym", symphony);
-        log("dc", symphony?.dailyChanges);
 
         getTearsheetHtml(
           symphony,
@@ -86,7 +73,6 @@ function setupMessageHandlers() {
         // Get the User Defined Upload Url from storage
         chrome.storage.local.get(['userDefinedUploadUrl'], function(result) {
           if (!result.userDefinedUploadUrl) {
-            console.log("No User Defined Upload Url configured, skipping processSymphonies");
             sendResponse({ success: false, error: "No User Defined Upload Url configured" });
             resolve();
             return;
@@ -112,7 +98,6 @@ function setupMessageHandlers() {
               }),
             })
           } catch (error) {
-            console.error("Error processing symphonies:", error);
             sendResponse({ success: false, error: error.message });
           }
           sendResponse({ success: true, message: 'data sent' });

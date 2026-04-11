@@ -45,11 +45,26 @@ async function getTearsheetHtml(symphony, series_data, type, backtestData) {
     delete series_data.benchmark_series;
   }
 
-  const pyodide = await getPyodide();
-  try {
-    let tearsheetHtml = await pyodide.runPythonAsync(`
+  let tearsheetHtml = null;
+  let attempt = 0;
+  
+  while (attempt < 2 && !tearsheetHtml) {
+    attempt++;
+    try {
+      // Clear module cache on attempt 2 for backtest
+      const clearCache = (attempt === 2 && type === 'backtest') 
+        ? `import sys; sys.modules.pop('quantstats_lumi', None); `
+        : '';
+        
+      const pyodide = await getPyodide();
+      
+      pyodide.globals.set('series_data_json', JSON.stringify(series_data));
+      pyodide.globals.set('symphony_id_val', symphony.id.replace(/'/g, "\\'"));
+      pyodide.globals.set('symphony_name_val', `${symphony.name.replace(/'/g, "\\'")} ${type}`);
 
-        import quantstats_lumi as qs
+      tearsheetHtml = await pyodide.runPythonAsync(`
+
+        ${clearCache}import quantstats_lumi as qs
         import pandas as pd
         import json
         import sys
@@ -64,14 +79,17 @@ async function getTearsheetHtml(symphony, series_data, type, backtestData) {
         # Set matplotlib to use the Agg backend to avoid displaying plots this is necessary for running in a headless environment
         matplotlib.use('Agg')
 
-        symphony_id = '${symphony.id.replace(/'/g, "\\'")}'
-        symphony_name = '${symphony.name.replace(/'/g, "\\'")} ${type}'
+        symphony_id = symphony_id_val
+        symphony_name = symphony_name_val
 
         # Enable extend_pandas functionality from QuantStats
         qs.extend_pandas()
 
-        # Parse the JSON data
-        data = json.loads('''${JSON.stringify(series_data)}''')
+        # Parse the JSON data from global set value instead of embedding in template
+        data = json.loads(series_data_json)
+
+        print("Python: data loaded, returns length:", len(data.get('returns', [])))
+        print("Python: data keys:", list(data.keys()))
 
 
         # Create pandas Series for each field
@@ -103,11 +121,23 @@ async function getTearsheetHtml(symphony, series_data, type, backtestData) {
 
       `);
 
-    return tearsheetHtml;
-  } catch (err) {
-    console.error(err);
-    return { error: "An error occurred: " + err.message };
+    } catch (err) {
+      if (attempt < 2) {
+        try {
+          await pyodide.loadPackage("/lib/pyodide/quantstats_lumi-0.3.3-py2.py3-none-any.whl");
+        } catch (reloadErr) {}
+      }
+      tearsheetHtml = null;
+    }
   }
+  
+  if (!tearsheetHtml) {
+    return { 
+      error: "An error occurred after retry", 
+    };
+  }
+  
+  return tearsheetHtml;
 }
 
 export { getTearsheetHtml }; 
