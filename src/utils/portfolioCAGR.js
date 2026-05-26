@@ -1,8 +1,6 @@
 import { performanceData } from "../apiService.js";
 import { log } from "./logger.js";
 
-const CAGR_ADJUSTMENT_KEY = 'composer-returns-cagr-adjustment';
-
 export function sumNetDeposits(transfers, upToDate = null, fromDate = null) {
   return transfers
     .filter(t => t.status === "COMPLETE")
@@ -18,184 +16,104 @@ export function sumNetDeposits(transfers, upToDate = null, fromDate = null) {
     }, 0);
 }
 
-function getStoredCagrAdjustment() {
-  const val = localStorage.getItem(CAGR_ADJUSTMENT_KEY);
-  return val !== null ? parseFloat(val) || 0 : 0;
-}
-
-function setStoredCagrAdjustment(val) {
-  localStorage.setItem(CAGR_ADJUSTMENT_KEY, String(val));
-}
-
-export function findMetricBanner() {
-  const selectors = [
-    '.metric-banner',
-    '[class*="metric"]',
-    'header .grid',
-    'main > div:first-child .grid',
-    '.grid:has([class*="text-2xl"])',
-  ];
-
-  for (const selector of selectors) {
-    try {
-      const el = document.querySelector(selector);
-      if (el) {
-        log(`Found metric banner with selector: ${selector}`);
-        return el;
+export function findStatsPanel() {
+  const panel = document.querySelector('[data-testid="portfolio-stats-panel"]');
+  if (panel) {
+    for (const section of panel.querySelectorAll('section')) {
+      if (section.textContent.includes('Cumulative Return')) {
+        log('Found portfolio stats panel');
+        return section;
       }
-    } catch (e) {
-      // :has() might not be supported in older browsers
     }
   }
 
   const allDivs = document.querySelectorAll('div');
   for (const div of allDivs) {
     if (div.textContent.includes('Portfolio Value') && div.querySelector('.grid')) {
-      log('Found metric banner by content search');
-      return div;
+      log('Found legacy metric banner by content search');
+      return div.classList.contains('grid') ? div : div.querySelector('.grid');
     }
   }
 
   return null;
 }
 
-function createCagrTooltip(stats, anchorRect, cagrValueElement) {
-  const existing = document.getElementById('composer-cagr-tooltip');
-  if (existing) existing.remove();
+export function findMetricBanner() {
+  return findStatsPanel();
+}
 
-  const cagrAdjustment = getStoredCagrAdjustment();
+export function createPanelStat(label, extraClass = '') {
+  const wrapper = document.createElement('div');
+  wrapper.className = `flex flex-col pb-2 border-b border-white/20 w-[155px] composer-returns-stat ${extraClass}`.trim();
 
-  const currentNetDeposits = stats.achOnlyDeposits + cagrAdjustment;
-  const currentTotalReturn = currentNetDeposits > 0 ? (stats.endValue - currentNetDeposits) / currentNetDeposits : 0;
-  const currentCagr = currentNetDeposits > 0 ? Math.pow(1 + currentTotalReturn, 1 / stats.years) - 1 : 0;
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'text-xs leading-4 text-light-soft';
+  labelSpan.textContent = label;
 
-  const tooltip = document.createElement('div');
-  tooltip.id = 'composer-cagr-tooltip';
-  tooltip.style.position = 'fixed';
-  tooltip.style.maxWidth = '300px';
-  tooltip.style.background = 'rgba(30,32,40,0.98)';
-  tooltip.style.color = '#fff';
-  tooltip.style.padding = '14px 18px';
-  tooltip.style.borderRadius = '8px';
-  tooltip.style.boxShadow = '0 2px 12px rgba(0,0,0,0.18)';
-  tooltip.style.zIndex = 9999;
-  tooltip.style.fontSize = '14px';
-  tooltip.style.transition = 'opacity 0.15s';
-  tooltip.style.opacity = '0';
+  const valueOuter = document.createElement('span');
+  valueOuter.className = 'text-sm font-medium leading-5 text-light tabular-nums';
+  const valueElement = document.createElement('span');
+  valueOuter.appendChild(valueElement);
 
-  if (!document.getElementById('composer-returns-tooltip-grid-style')) {
-    const style = document.createElement('style');
-    style.id = 'composer-returns-tooltip-grid-style';
-    style.textContent = `
-      #composer-returns-popup-values, #composer-cagr-popup-values {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 0 5px;
-        margin-bottom: 0.5em;
-        align-items: center;
-      }
-      #composer-returns-popup-values .composer-label, #composer-cagr-popup-values .composer-label {
-        text-align: right;
-        opacity: 0.85;
-        padding-right: 2px;
-      }
-      #composer-returns-popup-values .composer-value, #composer-cagr-popup-values .composer-value {
-        text-align: left;
-        font-weight: bold;
-        display: flex;
-        align-items: center;
-      }
-      #composer-cagr-popup-values .composer-value input {
-        width: 100px;
-        padding: 2px 6px;
-        border-radius: 4px;
-        border: 1px solid #888;
-        font-weight: normal;
-        transform: translateX(-5px);
-        height: 28px;
-        box-sizing: border-box;
-      }
-    `;
-    document.head.appendChild(style);
-  }
+  wrapper.appendChild(labelSpan);
+  wrapper.appendChild(valueOuter);
 
-  const yearsFormatted = stats.years.toFixed(2);
+  return { wrapper, valueElement, valueOuter };
+}
 
-  tooltip.innerHTML = `
-    <div style="font-weight:bold; font-size: 16px;">Portfolio CAGR</div>
-    <div style="padding-bottom:8px; margin-bottom:8px; font-size: 11px; opacity:0.6;">
-      (Portfolio Value - Net Deposits) / Net Deposits, annualized
-    </div>
-    <div id="composer-cagr-popup-values">
-      <div class="composer-label">CAGR:</div><div class="composer-value" id="composer-cagr-value">${(currentCagr * 100).toFixed(2)}%</div>
-      <div class="composer-label">Total Return:</div><div class="composer-value" id="composer-cagr-total-return">${(currentTotalReturn * 100).toFixed(2)}%</div>
-      <div class="composer-label">Years Invested:</div><div class="composer-value">${yearsFormatted}</div>
-      <div class="composer-label">&nbsp;</div><div class="composer-value"></div>
-      <div class="composer-label">Start Value:</div><div class="composer-value">$${stats.startValue.toFixed(2)}</div>
-      <div class="composer-label">End Value:</div><div class="composer-value">$${stats.endValue.toFixed(2)}</div>
-      <div class="composer-label">ACH Deposits:</div><div class="composer-value">$${stats.achOnlyDeposits.toFixed(2)}</div>
-      <div class="composer-label">Net Deposits:</div><div class="composer-value" id="composer-cagr-net-deposits">$${currentNetDeposits.toFixed(2)}</div>
-      <div class="composer-label">&nbsp;</div><div class="composer-value"></div>
-      <div class="composer-label">Net Adjustments:</div><div class="composer-value"><input id="composer-cagr-adjust-input" type="number" step="any" value="${cagrAdjustment}" style="width:100px; font-size:15px; padding:2px 6px; border-radius:4px; border:1px solid #888; margin-left:4px; color:#222;" /></div>
-    </div>
-    <div style="margin-top:14px; font-size:11px; color:#b0b8c9; line-height:1.5; opacity:0.6;">
-      <b>ACH Deposits</b> are automatically tracked. <b>Wire transfers and IRA rollovers</b> must be added manually as <b>"Net Adjustments"</b>.<br><br>
-      Uses Composer's formula: (Portfolio Value - Net Deposits) / Net Deposits. After 1 year, CAGR equals Cumulative Return.
-    </div>
-  `;
-  document.body.appendChild(tooltip);
+function attachHoverTooltip(wrapper, openTooltipFn) {
+  let isOver = false;
+  let tooltip = null;
+  let closeTimeout = null;
 
-  if (cagrValueElement && currentNetDeposits > 0) {
-    cagrValueElement.textContent = `${(currentCagr * 100).toFixed(2)}%`;
-  }
-
-  setTimeout(() => {
-    const cagrAdjInput = document.getElementById('composer-cagr-adjust-input');
-    if (cagrAdjInput) {
-      cagrAdjInput.addEventListener('input', () => {
-        const adj = parseFloat(cagrAdjInput.value) || 0;
-        setStoredCagrAdjustment(adj);
-
-        const newNetDeposits = stats.achOnlyDeposits + adj;
-        if (newNetDeposits > 0) {
-          const newTotalReturn = (stats.endValue - newNetDeposits) / newNetDeposits;
-          const newCagr = Math.pow(1 + newTotalReturn, 1 / stats.years) - 1;
-
-          const netDepositsEl = document.getElementById('composer-cagr-net-deposits');
-          const cagrEl = document.getElementById('composer-cagr-value');
-          const totalReturnEl = document.getElementById('composer-cagr-total-return');
-
-          if (netDepositsEl) netDepositsEl.textContent = `$${newNetDeposits.toFixed(2)}`;
-          if (cagrEl) cagrEl.textContent = `${(newCagr * 100).toFixed(2)}%`;
-          if (totalReturnEl) totalReturnEl.textContent = `${(newTotalReturn * 100).toFixed(2)}%`;
-
-          if (cagrValueElement) cagrValueElement.textContent = `${(newCagr * 100).toFixed(2)}%`;
-        }
-      });
-    }
-  }, 0);
-
-  if (anchorRect) {
-    tooltip.style.left = `${anchorRect.right + 12}px`;
-    tooltip.style.top = `${anchorRect.top - 8}px`;
-  }
-
-  let isOverTooltip = false;
-  tooltip.addEventListener('mouseenter', () => {
-    isOverTooltip = true;
-    tooltip.style.opacity = '1';
-  });
-  tooltip.addEventListener('mouseleave', () => {
-    isOverTooltip = false;
+  function closeTooltip() {
+    if (!tooltip) return;
     tooltip.style.opacity = '0';
     setTimeout(() => {
-      if (!isOverTooltip) tooltip.remove();
+      if (tooltip) {
+        tooltip.remove();
+        tooltip = null;
+      }
     }, 150);
+  }
+
+  wrapper.addEventListener('mouseenter', () => {
+    isOver = true;
+    if (tooltip) tooltip.remove();
+    tooltip = openTooltipFn(wrapper.getBoundingClientRect());
+    if (tooltip) {
+      tooltip.addEventListener('mouseenter', () => {
+        isOver = true;
+        clearTimeout(closeTimeout);
+      });
+      tooltip.addEventListener('mouseleave', closeTooltip);
+    }
   });
 
-  setTimeout(() => { tooltip.style.opacity = '1'; }, 0);
+  wrapper.addEventListener('mouseleave', () => {
+    isOver = false;
+    closeTimeout = setTimeout(() => {
+      if (!isOver) closeTooltip();
+    }, 150);
+  });
+}
 
-  return tooltip;
+function waitForStatsPanel(timeoutMs = 10000, pollMs = 100) {
+  const start = Date.now();
+  return new Promise((resolve) => {
+    function check() {
+      const panel = findStatsPanel();
+      const hasCumulativeReturn = panel && panel.textContent.includes('Cumulative Return');
+      if (panel && hasCumulativeReturn) return resolve(panel);
+
+      if (Date.now() - start < timeoutMs) {
+        setTimeout(check, pollMs);
+      } else {
+        resolve(null);
+      }
+    }
+    check();
+  });
 }
 
 let minRunningDaysForCagr = 0;
@@ -445,12 +363,16 @@ function createActiveCagrTooltip(stats, anchorRect) {
     tooltip.style.top = `${anchorRect.top - 8}px`;
 
     setTimeout(() => {
-      const tooltipRect = tooltip.getBoundingClientRect();
+      let tooltipRect = tooltip.getBoundingClientRect();
       if (tooltipRect.right > window.innerWidth - 10) {
         tooltip.style.left = `${anchorRect.left - tooltipRect.width - 12}px`;
+        tooltipRect = tooltip.getBoundingClientRect();
+      }
+      if (tooltipRect.left < 10) {
+        tooltip.style.left = `10px`;
       }
       if (tooltipRect.bottom > window.innerHeight - 10) {
-        tooltip.style.top = `${window.innerHeight - tooltipRect.height - 10}px`;
+        tooltip.style.top = `${Math.max(10, window.innerHeight - tooltipRect.height - 10)}px`;
       }
     }, 0);
   }
@@ -461,34 +383,27 @@ function createActiveCagrTooltip(stats, anchorRect) {
 }
 
 export function injectActiveCagrLoadingPlaceholder() {
-  const banner = findMetricBanner();
-  if (!banner) return;
+  const panel = findStatsPanel();
+  if (panel) {
+    if (panel.querySelector('.composer-active-cagr-stat')) return;
 
-  const grid = banner.classList.contains('grid') ? banner : banner.querySelector('.grid');
-  if (!grid) return;
+    const { wrapper, valueElement } = createPanelStat('Active CAGR', 'composer-active-cagr-stat');
+    valueElement.textContent = 'Loading...';
+    valueElement.parentElement.style.opacity = '0.5';
 
-  if (grid.querySelector('.composer-active-cagr-stat')) return;
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'md:first:pl-2 composer-active-cagr-stat composer-returns-stat';
-  const labelDiv = document.createElement('div');
-  labelDiv.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
-  labelDiv.textContent = 'Active CAGR';
-  const valueDiv = document.createElement('div');
-  valueDiv.className = 'text-white text-2xl leading-none';
-  valueDiv.style.opacity = '0.5';
-  valueDiv.textContent = 'Loading...';
-  wrapper.appendChild(labelDiv);
-  wrapper.appendChild(valueDiv);
-
-  const existingCagr = grid.querySelector('.composer-cagr-stat');
-  if (existingCagr && existingCagr.nextSibling) {
-    grid.insertBefore(wrapper, existingCagr.nextSibling);
-  } else if (existingCagr) {
-    grid.appendChild(wrapper);
-  } else {
-    grid.appendChild(wrapper);
+    panel.appendChild(wrapper);
+    return;
   }
+
+  // If the panel hasn't rendered yet, retry briefly.
+  waitForStatsPanel().then((p) => {
+    if (!p) return;
+    if (p.querySelector('.composer-active-cagr-stat')) return;
+    const { wrapper, valueElement } = createPanelStat('Active CAGR', 'composer-active-cagr-stat');
+    valueElement.textContent = 'Loading...';
+    valueElement.parentElement.style.opacity = '0.5';
+    p.appendChild(wrapper);
+  });
 }
 
 export function injectActiveCagrWithTooltip(stats) {
@@ -496,225 +411,70 @@ export function injectActiveCagrWithTooltip(stats) {
 
   const hasValidCagr = stats.activeCagr !== null && stats.activeCagr !== undefined;
 
-  const banner = findMetricBanner();
-  if (!banner) {
-    log('Could not find metric banner for Active CAGR injection');
-    return;
-  }
-  const grid = banner.classList.contains('grid') ? banner : banner.querySelector('.grid');
-  if (!grid) {
-    log('Could not find grid in metric banner for Active CAGR');
-    return;
-  }
+  const panel = findStatsPanel();
 
-  grid.querySelectorAll('.composer-active-cagr-stat').forEach(el => el.remove());
+  const doInject = (targetPanel) => {
+    if (!targetPanel) return;
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'md:first:pl-2 composer-active-cagr-stat composer-returns-stat';
-  wrapper.style.cursor = 'pointer';
-  const labelDiv = document.createElement('div');
-  labelDiv.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
-  labelDiv.textContent = 'Active CAGR';
-  const valueDiv = document.createElement('div');
-  valueDiv.className = 'text-white text-2xl leading-none';
+    targetPanel.querySelectorAll('.composer-active-cagr-stat').forEach(el => el.remove());
 
-  if (hasValidCagr) {
-    const cagrValue = stats.activeCagr * 100;
-    valueDiv.textContent = `${cagrValue.toFixed(2)}%`;
-    if (cagrValue >= 0) {
-      valueDiv.style.color = '#4ade80';
+    const { wrapper, valueElement, valueOuter } = createPanelStat('Active CAGR', 'composer-active-cagr-stat');
+    wrapper.style.cursor = 'pointer';
+
+    if (hasValidCagr) {
+      const cagrValue = stats.activeCagr * 100;
+      valueElement.textContent = `${cagrValue.toFixed(2)}%`;
+      valueOuter.style.color = cagrValue >= 0 ? '#4ade80' : '#f87171';
     } else {
-      valueDiv.style.color = '#f87171';
+      valueElement.textContent = 'N/A';
+      valueOuter.style.opacity = '0.5';
+      wrapper.title = `No symphonies with >${stats.minDays} trading days`;
     }
-  } else {
-    valueDiv.textContent = 'N/A';
-    valueDiv.style.opacity = '0.5';
-    valueDiv.title = `No symphonies with >${stats.minDays} trading days`;
-  }
 
-  wrapper.appendChild(labelDiv);
-  wrapper.appendChild(valueDiv);
+    attachHoverTooltip(wrapper, (anchorRect) => {
+      if (!hasValidCagr) {
+        const tooltip = document.createElement('div');
+        tooltip.id = 'composer-active-cagr-tooltip';
+        tooltip.style.cssText = 'position:fixed;background:rgba(30,32,40,0.98);color:#fff;padding:14px 18px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.18);z-index:9999;font-size:14px;';
+        tooltip.innerHTML = `
+          <div style="font-weight:bold; font-size: 16px;">Active CAGR</div>
+          <div style="margin-top:8px;">No symphonies have been running for more than ${stats.minDays} trading days yet.</div>
+          <div style="margin-top:8px; opacity:0.7;">${stats.excludedCount} symphonies excluded due to insufficient data.</div>
+        `;
+        document.body.appendChild(tooltip);
+        tooltip.style.left = `${anchorRect.right + 12}px`;
+        tooltip.style.top = `${anchorRect.top - 8}px`;
 
-  let isOverActiveCagr = false;
-  let tooltip = null;
-  let closeTimeout = null;
+        // Keep the "no data" tooltip within viewport.
+        setTimeout(() => {
+          let tooltipRect = tooltip.getBoundingClientRect();
+          if (tooltipRect.right > window.innerWidth - 10) {
+            tooltip.style.left = `${anchorRect.left - tooltipRect.width - 12}px`;
+            tooltipRect = tooltip.getBoundingClientRect();
+          }
+          if (tooltipRect.left < 10) tooltip.style.left = '10px';
+          if (tooltipRect.bottom > window.innerHeight - 10) {
+            tooltip.style.top = `${Math.max(10, window.innerHeight - tooltipRect.height - 10)}px`;
+          }
+        }, 0);
 
-  function openTooltip() {
-    if (tooltip) tooltip.remove();
-    if (!hasValidCagr) {
-      tooltip = document.createElement('div');
-      tooltip.id = 'composer-active-cagr-tooltip';
-      tooltip.style.cssText = 'position:fixed;background:rgba(30,32,40,0.98);color:#fff;padding:14px 18px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.18);z-index:9999;font-size:14px;';
-      tooltip.innerHTML = `
-        <div style="font-weight:bold; font-size: 16px;">Active CAGR</div>
-        <div style="margin-top:8px;">No symphonies have been running for more than ${stats.minDays} trading days yet.</div>
-        <div style="margin-top:8px; opacity:0.7;">${stats.excludedCount} symphonies excluded due to insufficient data.</div>
-      `;
-      document.body.appendChild(tooltip);
-      const rect = wrapper.getBoundingClientRect();
-      tooltip.style.left = `${rect.right + 12}px`;
-      tooltip.style.top = `${rect.top - 8}px`;
-      return;
-    }
-    tooltip = createActiveCagrTooltip(stats, wrapper.getBoundingClientRect());
-    tooltip.addEventListener('mouseenter', () => {
-      isOverActiveCagr = false;
-      clearTimeout(closeTimeout);
+        return tooltip;
+      }
+
+      return createActiveCagrTooltip(stats, anchorRect);
     });
-    tooltip.addEventListener('mouseleave', () => {
-      closeTooltip();
-    });
-  }
 
-  function closeTooltip() {
-    if (tooltip) {
-      tooltip.style.opacity = '0';
-      setTimeout(() => {
-        if (tooltip) {
-          tooltip.remove();
-          tooltip = null;
-        }
-      }, 150);
-    }
-  }
+    targetPanel.appendChild(wrapper);
+  };
 
-  wrapper.addEventListener('mouseenter', () => {
-    isOverActiveCagr = true;
-    openTooltip();
-  });
-  wrapper.addEventListener('mouseleave', () => {
-    isOverActiveCagr = false;
-    closeTimeout = setTimeout(() => {
-      if (!isOverActiveCagr) closeTooltip();
-    }, 150);
-  });
-
-  const existingCagr = grid.querySelector('.composer-cagr-stat');
-  if (existingCagr && existingCagr.nextSibling) {
-    grid.insertBefore(wrapper, existingCagr.nextSibling);
-  } else if (existingCagr) {
-    grid.appendChild(wrapper);
-  } else {
-    grid.appendChild(wrapper);
-  }
-}
-
-export function injectCagrWithTooltip(stats) {
-  if (stats.cagr === undefined) return;
-
-  const banner = findMetricBanner();
-  if (!banner) {
-    log('Could not find metric banner for CAGR injection');
-    return;
-  }
-  const grid = banner.classList.contains('grid') ? banner : banner.querySelector('.grid');
-  if (!grid) {
-    log('Could not find grid in metric banner');
+  if (panel) {
+    doInject(panel);
     return;
   }
 
-  grid.querySelectorAll('.composer-cagr-stat').forEach(el => el.remove());
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'md:first:pl-2 composer-cagr-stat composer-returns-stat';
-  wrapper.style.cursor = 'pointer';
-  const labelDiv = document.createElement('div');
-  labelDiv.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
-  labelDiv.textContent = 'Portfolio CAGR';
-  const valueDiv = document.createElement('div');
-  valueDiv.className = 'text-white text-2xl leading-none';
-  valueDiv.textContent = `${(stats.cagr * 100).toFixed(2)}%`;
-  wrapper.appendChild(labelDiv);
-  wrapper.appendChild(valueDiv);
-
-  let isOverCagr = false;
-  let tooltip = null;
-  let closeTimeout = null;
-
-  function openTooltip() {
-    if (tooltip) tooltip.remove();
-    tooltip = createCagrTooltip(stats, wrapper.getBoundingClientRect(), valueDiv);
-    tooltip.addEventListener('mouseenter', () => {
-      isOverCagr = false;
-      clearTimeout(closeTimeout);
-    });
-    tooltip.addEventListener('mouseleave', () => {
-      closeTooltip();
-    });
-  }
-
-  function closeTooltip() {
-    if (tooltip) {
-      tooltip.style.opacity = '0';
-      setTimeout(() => {
-        if (tooltip) {
-          tooltip.remove();
-          tooltip = null;
-        }
-      }, 150);
-    }
-  }
-
-  wrapper.addEventListener('mouseenter', () => {
-    isOverCagr = true;
-    openTooltip();
+  // If the panel hasn't rendered yet, retry briefly.
+  waitForStatsPanel().then((p) => {
+    if (!p) return;
+    doInject(p);
   });
-  wrapper.addEventListener('mouseleave', () => {
-    isOverCagr = false;
-    closeTimeout = setTimeout(() => {
-      if (!isOverCagr) closeTooltip();
-    }, 150);
-  });
-
-  grid.appendChild(wrapper);
-}
-
-export function calculateCagrStats(history, allTransfers) {
-  if (history.series.length <= 1) return null;
-
-  try {
-    const firstDate = new Date(history.epoch_ms[0]);
-    const lastDate = new Date(history.epoch_ms[history.epoch_ms.length - 1]);
-    const startValue = history.series[0];
-    const endValue = history.series[history.series.length - 1];
-    const achOnlyDeposits = sumNetDeposits(allTransfers);
-    const cagrAdjustment = getStoredCagrAdjustment();
-    const netDeposits = achOnlyDeposits + cagrAdjustment;
-
-    const msInYear = 365.25 * 24 * 60 * 60 * 1000;
-    const yearsInvested = (lastDate.getTime() - firstDate.getTime()) / msInYear;
-
-    if (yearsInvested <= 0.01 || netDeposits <= 0) {
-      log("Portfolio too new for CAGR calculation (less than 4 days)");
-      return null;
-    }
-
-    const totalReturn = (endValue - netDeposits) / netDeposits;
-    const cagr = Math.pow(1 + totalReturn, 1 / yearsInvested) - 1;
-
-    log("");
-    log("[All-Time CAGR]");
-    log(`  Start Value: $${startValue.toFixed(2)} (${firstDate.toISOString().slice(0,10)})`);
-    log(`  End Value:   $${endValue.toFixed(2)} (${lastDate.toISOString().slice(0,10)})`);
-    log(`  ACH Deposits: $${achOnlyDeposits.toFixed(2)}`);
-    log(`  CAGR Adjustment (wire/IRA): $${cagrAdjustment.toFixed(2)}`);
-    log(`  Net Deposits (total): $${netDeposits.toFixed(2)}`);
-    log(`  Years Invested: ${yearsInvested.toFixed(2)}`);
-    log(`  Total Return (Composer formula): ${(totalReturn * 100).toFixed(2)}%`);
-    log(`  CAGR: ${(cagr * 100).toFixed(2)}%`);
-
-    return {
-      cagr,
-      totalReturn,
-      years: yearsInvested,
-      startValue,
-      endValue,
-      netDeposits,
-      achOnlyDeposits,
-      hasAdjustment: cagrAdjustment !== 0
-    };
-  } catch (error) {
-    log("Error calculating CAGR:", error);
-    return null;
-  }
 }

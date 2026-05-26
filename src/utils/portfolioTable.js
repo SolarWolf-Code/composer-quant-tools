@@ -30,11 +30,8 @@ export function setExtraColumns(columns) {
 
 export const startPortfolioTableInterval = async () => {
   const checkInterval = setInterval(async () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const view = urlParams.get('view');
-    if (window.location.pathname !== "/portfolio" || (view && view !== 'symphonies')) return;
+    if (window.location.pathname !== "/portfolio") return;
     const mainTable = document.querySelector("main :not(.tv-lightweight-charts) > table");
-    const portfolioChart = document.querySelector('[data-highcharts-chart], .border-graph-axislines');
     const mainTableContent = document.querySelectorAll("main :not(.tv-lightweight-charts) > table td");
     if (!mainTable) return;
     if (mainTable.classList.contains('composer-quant-tools-initialized')) {
@@ -44,7 +41,7 @@ export const startPortfolioTableInterval = async () => {
       }
     }
     if (!mainTable.classList.contains('composer-quant-tools-initialized')) {
-      if (portfolioChart && mainTableContent) {
+      if (mainTableContent?.length > 0) {
         mainTable.classList.add('composer-quant-tools-initialized');
         await startSymphonyPerformanceSync(mainTable);
       }
@@ -52,7 +49,8 @@ export const startPortfolioTableInterval = async () => {
     }
     if (performanceData?.symphonyStats?.symphonies?.length > 0) {
       const mainTableBody = mainTable.querySelector("tbody");
-      const rows = mainTableBody?.querySelectorAll("tr .bg-sheet");
+      // rows are <tr> elements directly in tbody (bg-sheet may be on the tr itself or a child)
+      const rows = mainTableBody?.querySelectorAll("tr");
       if (rows?.length > 0) {
         const needsUpdate = Array.from(rows).some(row => {
           const columnCells = row.querySelectorAll('.extra-column');

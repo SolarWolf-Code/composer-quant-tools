@@ -1,10 +1,10 @@
-import { getTokenAndAccount, fetchPortfolioHistory, fetchAchTransfers } from "../apiService.js";
+import { getTokenAndAccount, fetchPortfolioHistory, fetchAchTransfers, performanceData } from "../apiService.js";
+import { getSymphonyPerformanceInfo } from "./portfolioTable.js";
 import { log } from "./logger.js";
 import {
   sumNetDeposits,
-  findMetricBanner,
-  injectCagrWithTooltip,
-  calculateCagrStats,
+  findStatsPanel,
+  createPanelStat,
   calculateActiveCagr,
   injectActiveCagrWithTooltip,
   injectActiveCagrLoadingPlaceholder,
@@ -136,6 +136,28 @@ function createYtdReturnsTooltip(stats, anchorRect, ytdReturnElement) {
   if (anchorRect) {
     tooltip.style.left = `${anchorRect.right + 12}px`;
     tooltip.style.top = `${anchorRect.top - 8}px`;
+
+    // Nudge tooltip fully into the viewport if it overflows
+    setTimeout(() => {
+      const tooltipRect = tooltip.getBoundingClientRect();
+
+      // If it runs off the right edge, flip to the left side of the anchor
+      if (tooltipRect.right > window.innerWidth - 10) {
+        tooltip.style.left = `${anchorRect.left - tooltipRect.width - 12}px`;
+      }
+
+      // Clamp horizontally so it never goes off the left edge
+      const updatedRect = tooltip.getBoundingClientRect();
+      if (updatedRect.left < 10) {
+        tooltip.style.left = `10px`;
+      }
+
+      // If it runs off the bottom edge, shift it up
+      if (updatedRect.bottom > window.innerHeight - 10) {
+        const maxTop = window.innerHeight - updatedRect.height - 10;
+        tooltip.style.top = `${Math.max(10, maxTop)}px`;
+      }
+    }, 0);
   }
 
   let isOverTooltip = false;
@@ -156,120 +178,87 @@ function createYtdReturnsTooltip(stats, anchorRect, ytdReturnElement) {
   return tooltip;
 }
 
-function getLastNativeElement(grid) {
-  const children = Array.from(grid.children);
-  for (let i = children.length - 1; i >= 0; i--) {
-    if (!children[i].classList.contains('composer-returns-stat')) {
-      return children[i];
-    }
-  }
-  return null;
-}
-
 function injectYtdReturnWithTooltip({
   ytdReturn,
   ...stats
 }) {
   if (ytdReturn === undefined) return;
 
-  const banner = findMetricBanner();
-  if (!banner) {
-    log('Could not find metric banner for YTD injection');
-    return;
-  }
-  const grid = banner.classList.contains('grid') ? banner : banner.querySelector('.grid');
-  if (!grid) {
-    log('Could not find grid in metric banner for YTD');
+  const panel = findStatsPanel();
+  if (!panel) {
+    log('Could not find portfolio stats panel for YTD injection');
     return;
   }
 
-  grid.querySelectorAll('.composer-returns-stat:not(.composer-cagr-stat)').forEach(el => el.remove());
+  panel.querySelectorAll('.composer-ytd-stat').forEach(el => el.remove());
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'md:first:pl-2 composer-returns-stat';
+  const { wrapper, valueElement } = createPanelStat('YTD Return', 'composer-ytd-stat');
   wrapper.style.cursor = 'pointer';
-  const labelDiv = document.createElement('div');
-  labelDiv.className = 'flex text-xs text-light-soft mb-1 gap-x-1 items-center';
-  labelDiv.textContent = 'YTD Return';
-  const valueDiv = document.createElement('div');
-  valueDiv.className = 'text-white text-2xl leading-none';
-  valueDiv.textContent = `${(ytdReturn * 100).toFixed(2)}%`;
-  wrapper.appendChild(labelDiv);
-  wrapper.appendChild(valueDiv);
+  valueElement.textContent = `${(ytdReturn * 100).toFixed(2)}%`;
 
-  let isOverYtd = false;
+  attachYtdHoverTooltip(wrapper, () => createYtdReturnsTooltip(
+    { ytdReturn, ...stats },
+    wrapper.getBoundingClientRect(),
+    valueElement
+  ));
+
+  panel.appendChild(wrapper);
+}
+
+function attachYtdHoverTooltip(wrapper, createTooltip) {
+  let isOver = false;
   let tooltip = null;
   let closeTimeout = null;
 
-  function openTooltip() {
-    if (tooltip) tooltip.remove();
-    tooltip = createYtdReturnsTooltip({ ytdReturn, ...stats }, wrapper.getBoundingClientRect(), valueDiv);
-    tooltip.addEventListener('mouseenter', () => {
-      isOverYtd = false;
-      clearTimeout(closeTimeout);
-    });
-    tooltip.addEventListener('mouseleave', () => {
-      closeTooltip();
-    });
-  }
-
   function closeTooltip() {
-    if (tooltip) {
-      tooltip.style.opacity = '0';
-      setTimeout(() => {
-        if (tooltip) {
-          tooltip.remove();
-          tooltip = null;
-        }
-      }, 150);
-    }
+    if (!tooltip) return;
+    tooltip.style.opacity = '0';
+    setTimeout(() => {
+      if (tooltip) {
+        tooltip.remove();
+        tooltip = null;
+      }
+    }, 150);
   }
 
   wrapper.addEventListener('mouseenter', () => {
-    isOverYtd = true;
-    openTooltip();
+    isOver = true;
+    if (tooltip) tooltip.remove();
+    tooltip = createTooltip();
+    if (tooltip) {
+      tooltip.addEventListener('mouseenter', () => {
+        isOver = true;
+        clearTimeout(closeTimeout);
+      });
+      tooltip.addEventListener('mouseleave', closeTooltip);
+    }
   });
+
   wrapper.addEventListener('mouseleave', () => {
-    isOverYtd = false;
+    isOver = false;
     closeTimeout = setTimeout(() => {
-      if (!isOverYtd) closeTooltip();
+      if (!isOver) closeTooltip();
     }, 150);
   });
-
-  const lastNative = getLastNativeElement(grid);
-  const existingCagr = grid.querySelector('.composer-cagr-stat');
-  if (existingCagr) {
-    grid.insertBefore(wrapper, existingCagr);
-  } else if (lastNative && lastNative.nextSibling) {
-    grid.insertBefore(wrapper, lastNative.nextSibling);
-  } else {
-    grid.appendChild(wrapper);
-  }
 }
 
-async function waitForMetricBannerAndInject(ytdStats, cagrStats, timeoutMs = 10000) {
+async function waitForStatsPanelAndInject(ytdStats, timeoutMs = 10000) {
   const start = Date.now();
   return new Promise((resolve) => {
     function check() {
-      const banner = findMetricBanner();
-      const grid = banner ? (banner.classList.contains('grid') ? banner : banner.querySelector('.grid')) : null;
-      const hasCumulativeReturn = grid && Array.from(grid.children).some(
-        child => child.textContent.includes('Cumulative Return')
-      );
-      if (banner && grid && hasCumulativeReturn) {
+      const panel = findStatsPanel();
+      const hasCumulativeReturn = panel && panel.textContent.includes('Cumulative Return');
+      if (panel && hasCumulativeReturn) {
         setTimeout(() => {
           if (ytdStats) {
             injectYtdReturnWithTooltip(ytdStats);
-          }
-          if (cagrStats) {
-            injectCagrWithTooltip(cagrStats);
           }
           resolve(true);
         }, 100);
       } else if (Date.now() - start < timeoutMs) {
         setTimeout(check, 100);
       } else {
-        log('Warning: metric banner or grid not found after waiting. Check findMetricBanner() selectors.');
+        log('Warning: portfolio stats panel not found after waiting.');
         resolve(false);
       }
     }
@@ -331,12 +320,26 @@ export async function logPortfolioReturns() {
   }
   log("------------------------------------");
 
-  let cagrStats = null;
   if (enableCagrReturns) {
-    cagrStats = calculateCagrStats(history, allTransfers);
+    injectActiveCagrLoadingPlaceholder();
   }
 
-  if (ytdStats || cagrStats) {
-    await waitForMetricBannerAndInject(ytdStats, cagrStats);
+  if (ytdStats) {
+    await waitForStatsPanelAndInject(ytdStats);
+  }
+
+  if (enableCagrReturns) {
+    const hasSymphonyData = performanceData?.symphonyStats?.symphonies?.length > 0;
+    if (hasSymphonyData) {
+      // Data already loaded (e.g. table sync ran first) — inject immediately.
+      const stats = calculateActiveCagr();
+      if (stats) injectActiveCagrWithTooltip(stats);
+    } else {
+      // Kick off the symphony data fetch, then inject.
+      getSymphonyPerformanceInfo({ skipCache: false }).then(() => {
+        const stats = calculateActiveCagr();
+        if (stats) injectActiveCagrWithTooltip(stats);
+      }).catch(e => log('Active CAGR fetch error:', e));
+    }
   }
 }
